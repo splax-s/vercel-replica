@@ -1,30 +1,48 @@
-import express from "express";
+import express, { Request, Response, NextFunction } from 'express';
 import { S3 } from "aws-sdk";
+import path from 'path';
 
 const s3 = new S3({
-    accessKeyId: "7ea9c3f8c7f0f26f0d21c5ce99d1ad6a",
-    secretAccessKey: "b4df203781dd711223ce931a2d7ca269cdbf81bb530de4548474584951b798be",
-    endpoint: "https://e21220f4758c0870ba9c388712d42ef2.r2.cloudflarestorage.com"
+    accessKeyId: "8bfce4e233e69e02ebfb9d660ea123c1",
+    secretAccessKey: "668b9cbe3867152bebec79bbdc3fd59a0b89a007e11a471aeb05c4e6b706ca68",
+    endpoint: "https://f5db24438ba194a3ef442863bdbbdd9c.r2.cloudflarestorage.com"
 })
 
 const app = express();
 
-app.get("/*", async (req, res) => {
-    // id.100xdevs.com
+app.get('/*', async (req: Request, res: Response, next: NextFunction) => {
     const host = req.hostname;
+    const id = host.split('.')[0];
+    const filePath = req.path === '/' ? '/index.html' : req.path;
 
-    const id = host.split(".")[0];
-    const filePath = req.path;
+    try {
+        const contents = await s3.getObject({
+            Bucket: 'vercel',
+            Key: `dist/${id}${filePath}`
+        }).promise();
 
-    const contents = await s3.getObject({
-        Bucket: "vercel",
-        Key: `dist/${id}${filePath}`
-    }).promise();
-    
-    const type = filePath.endsWith("html") ? "text/html" : filePath.endsWith("css") ? "text/css" : "application/javascript"
-    res.set("Content-Type", type);
+        const type = filePath.endsWith('.html') ? 'text/html' : filePath.endsWith('.css') ? 'text/css' : 'application/javascript';
+        res.set('Content-Type', type);
 
-    res.send(contents.Body);
-})
+        res.send(contents.Body);
+    } catch (error: any) {
+        console.error('Error fetching from S3:', error);
+        // If file not found, serve custom 404 page
+        if (error.code === 'NoSuchKey') {
+            const errorPagePath = path.join(__dirname, '404.html');
+            res.status(404).sendFile(errorPagePath);
+        } else {
+            res.status(500).send('Internal server error');
+        }
+    }
+});
 
-app.listen(3001);
+// Keep the server running even if there's an unhandled error
+app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+    console.error('Unhandled error:', err);
+    res.status(500).send('Internal server error');
+});
+
+app.listen(3001, () => {
+    console.log('Server is running on port 3001');
+});

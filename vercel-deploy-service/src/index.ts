@@ -17,9 +17,10 @@ async function main() {
           );
         // @ts-ignore;
         const id = res.element
-        
+
         await downloadS3Folder(`output/${id}`)
-        await buildProject(id);
+        await buildProject(id, "bun");
+        // await buildProject(id);
         copyFinalDist(id);
         publisher.hSet("status", id, "deployed")
     }

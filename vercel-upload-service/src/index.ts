@@ -1,4 +1,3 @@
-
 import express from "express";
 import cors from "cors";
 import simpleGit from "simple-git";
@@ -7,45 +6,70 @@ import { getAllFiles } from "./file";
 import path from "path";
 import { uploadFile } from "./aws";
 import { createClient } from "redis";
-const publisher = createClient();
-publisher.connect();
 
+const publisher = createClient();
 const subscriber = createClient();
-subscriber.connect();
+
+(async () => {
+  try {
+    await publisher.connect();
+    await subscriber.connect();
+  } catch (err) {
+    console.error("Failed to connect to Redis:", err);
+  }
+})();
 
 const app = express();
-app.use(cors())
+app.use(cors());
 app.use(express.json());
 
 app.post("/deploy", async (req, res) => {
+  try {
     const repoUrl = req.body.repoUrl;
     const id = generate(); // asd12
+
+    // Clone repository
     await simpleGit().clone(repoUrl, path.join(__dirname, `output/${id}`));
 
+    // Get all files
     const files = getAllFiles(path.join(__dirname, `output/${id}`));
 
-    files.forEach(async file => {
-        await uploadFile(file.slice(__dirname.length + 1), file);
-    })
+    // Upload files
+    await Promise.all(files.map(file => uploadFile(file.slice(__dirname.length + 1), file)));
 
-    await new Promise((resolve) => setTimeout(resolve, 5000))
-    publisher.lPush("build-queue", id);
-    // INSERT => SQL
-    // .create => 
-    publisher.hSet("status", id, "uploaded");
+    // Simulate processing delay
+    await new Promise((resolve) => setTimeout(resolve, 5000));
 
-    res.json({
-        id: id
-    })
+    // Add to Redis queue
+    await publisher.lPush("build-queue", id);
 
+    // Set status in Redis
+    await publisher.hSet("status", id, "uploaded");
+
+    res.json({ id });
+  } catch (err) {
+    console.error("Error in /deploy:", err);
+    res.status(500).json({ error: "Deployment failed" });
+  }
 });
 
 app.get("/status", async (req, res) => {
+  try {
     const id = req.query.id;
     const response = await subscriber.hGet("status", id as string);
-    res.json({
-        status: response
-    })
-})
+    res.json({ status: response });
+  } catch (err) {
+    console.error("Error in /status:", err);
+    res.status(500).json({ error: "Failed to get status" });
+  }
+});
 
-app.listen(3000);
+process.on("SIGINT", async () => {
+  await publisher.quit();
+  await subscriber.quit();
+  process.exit();
+});
+
+app.listen(3000, () => {
+  console.log("Server is running on port 3000");
+});
